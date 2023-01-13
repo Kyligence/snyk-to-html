@@ -266,7 +266,7 @@ function mergeData(dataArray: any[]): any {
   const totalDepCount =
     dataArray.reduce((acc, item) => acc + item.dependencyCount || 0, 0);
 
-  const paths = dataArray.map(project => ({ path: project.path, packageManager: project.packageManager }));
+  const paths = dataArray.map(project => ({ path: project.path, packageManager: project.packageManager, displayTargetFile: project.displayTargetFile }));
 
   return {
     vulnerabilities: aggregateVulnerabilities,
