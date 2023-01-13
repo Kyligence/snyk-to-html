@@ -107,6 +107,7 @@ function metadataForVuln(vuln: any) {
     name: vuln.name,
     info: vuln.info || 'No information available.',
     severity: vuln.severity,
+    cvssDetails: vuln.cvssDetails,
     severityValue: severityMap[vuln.severity],
     description: vuln.description || 'No description available.',
     fixedIn: vuln.fixedIn,
@@ -115,6 +116,7 @@ function metadataForVuln(vuln: any) {
     cvssScore: vuln.cvssScore,
     cveSpaced: cveSpaced || 'No CVE found.',
     cveLineBreaks: cveLineBreaks || 'No CVE found.',
+    cveExist: cveSpaced == '' ? false : true,
     disclosureTime: dateFromDateTimeString(vuln.disclosureTime || ''),
     publicationTime: dateFromDateTimeString(vuln.publicationTime || ''),
     license: vuln.license || undefined
