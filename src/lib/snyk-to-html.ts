@@ -152,7 +152,9 @@ function dateFromDateTimeString(dateTimeString: string) {
 function groupVulns(vulns, cvssOrdering) {
   const result = {};
   let uniqueCount = 0;
+  let uniqueCountWithoutCVE = 0;
   let pathsCount = 0;
+  let pathsCountWithoutCVE = 0;
 
   if (vulns && Array.isArray(vulns)) {
     vulns.map(vuln => {
@@ -160,9 +162,16 @@ function groupVulns(vulns, cvssOrdering) {
         result[vuln.id] = {list: [vuln], metadata: metadataForVuln(vuln, cvssOrdering)};
         pathsCount++;
         uniqueCount++;
+        if (!vuln.identifiers.CVE.length) {
+          uniqueCountWithoutCVE++;
+          pathsCountWithoutCVE++;
+        }
       } else {
         result[vuln.id].list.push(vuln);
         pathsCount++;
+        if (!vuln.identifiers.CVE.length) {
+          pathsCountWithoutCVE++;
+        }
       }
     });
   }
@@ -170,7 +179,9 @@ function groupVulns(vulns, cvssOrdering) {
   return {
     vulnerabilities: result,
     vulnerabilitiesUniqueCount: uniqueCount,
+    vulnerabilitiesUniqueCountWithoutCVE: uniqueCountWithoutCVE,
     vulnerabilitiesPathsCount: pathsCount,
+    vulnerabilitiesPathsCountWithoutCVE: pathsCountWithoutCVE
   };
 }
 
@@ -220,7 +231,9 @@ async function generateTemplate(data: any,
   data.hasMetatableData = !!data.projectName || !!data.path || !!data.displayTargetFile;
   data.vulnerabilities = sortedVulns;
   data.uniqueCount = vulnMetadata.vulnerabilitiesUniqueCount;
+  data.uniqueCountWithCVE = vulnMetadata.vulnerabilitiesUniqueCount - vulnMetadata.vulnerabilitiesUniqueCountWithoutCVE;
   data.summary = vulnMetadata.vulnerabilitiesPathsCount + ' vulnerable dependency paths';
+  data.summaryWithCVE = vulnMetadata.vulnerabilitiesPathsCount - vulnMetadata.vulnerabilitiesPathsCountWithoutCVE + ' vulnerable dependency paths';
   data.showSummaryOnly = summary;
   if(data.paths?.length === 1){
     data.packageManager = data.paths[0].packageManager;
