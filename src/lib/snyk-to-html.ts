@@ -56,9 +56,10 @@ class SnykToHtml {
                     remediation: boolean,
                     hbsTemplate: string,
                     summary: boolean,
+                    cvssOrdering: string,
                     reportCallback: (value: string) => void): void {
     SnykToHtml
-      .runAsync(dataSource, remediation, hbsTemplate, summary)
+      .runAsync(dataSource, remediation, hbsTemplate, summary, cvssOrdering)
       .then(reportCallback)
       .catch(handleInvalidJson);
   }
@@ -66,7 +67,8 @@ class SnykToHtml {
   public static async runAsync(source: string,
                                remediation: boolean,
                                template: string,
-                               summary: boolean): Promise<string> {
+                               summary: boolean,
+                               cvssOrdering: string): Promise<string> {
     const promisedString = source ? readFile(source, 'utf8') : readInputFromStdin();
     return promisedString
       .then(promisedParseJSON).then((data: any) => {
@@ -88,9 +90,9 @@ class SnykToHtml {
               : template;
           return processCodeData(data, template, summary);
         } else if (data.docker) {
-          return processContainerData(data, remediation, template, summary);
+          return processContainerData(data, remediation, template, summary, cvssOrdering);
         } else {
-          return processData(data, remediation, template, summary);
+          return processData(data, remediation, template, summary, cvssOrdering);
         }
       });
   }
@@ -98,17 +100,22 @@ class SnykToHtml {
 
 export { SnykToHtml };
 
-function metadataForVuln(vuln: any) {
-  let {cveSpaced, cveLineBreaks} = concatenateCVEs(vuln)
+function metadataForVuln(vuln: any, cvssOrdering: string) {
+  const {cveSpaced, cveLineBreaks} = concatenateCVEs(vuln);
+  const cvssSpecifiedDetails = vuln.cvssDetails.find(element => {
+    return element.assigner == cvssOrdering;
+  }) ?? {severity: vuln.severity,cvssV3BaseScore: vuln.cvssScore};
 
   return {
     id: vuln.id,
     title: vuln.title,
     name: vuln.name,
     info: vuln.info || 'No information available.',
-    severity: vuln.severity,
     cvssDetails: vuln.cvssDetails,
+    severity: vuln.severity,
     severityValue: severityMap[vuln.severity],
+    cvssSeverity: cvssSpecifiedDetails.severity,
+    cvssSeverityValue: severityMap[cvssSpecifiedDetails.severity],
     description: vuln.description || 'No description available.',
     fixedIn: vuln.fixedIn,
     packageManager: vuln.packageManager,
@@ -142,7 +149,7 @@ function dateFromDateTimeString(dateTimeString: string) {
   return dateTimeString.substr(0,10);
 }
 
-function groupVulns(vulns) {
+function groupVulns(vulns, cvssOrdering) {
   const result = {};
   let uniqueCount = 0;
   let pathsCount = 0;
@@ -150,7 +157,7 @@ function groupVulns(vulns) {
   if (vulns && Array.isArray(vulns)) {
     vulns.map(vuln => {
       if (!result[vuln.id]) {
-        result[vuln.id] = {list: [vuln], metadata: metadataForVuln(vuln)};
+        result[vuln.id] = {list: [vuln], metadata: metadataForVuln(vuln, cvssOrdering)};
         pathsCount++;
         uniqueCount++;
       } else {
@@ -181,7 +188,8 @@ async function registerPeerPartial(templatePath: string, name: string): Promise<
 async function generateTemplate(data: any,
                                 template: string,
                                 showRemediation: boolean,
-                                summary: boolean):
+                                summary: boolean,
+                                cvssOrdering: string):
                               Promise<string> {
   if (showRemediation && data.remediation) {
     data.showRemediations = showRemediation;
@@ -189,7 +197,7 @@ async function generateTemplate(data: any,
     data.anyRemediations = !isEmpty(upgrade) ||
     !isEmpty(patch) || !isEmpty(pin);
     data.anyUnresolved = !!unresolved?.vulnerabilities;
-    data.unresolved = groupVulns(unresolved);
+    data.unresolved = groupVulns(unresolved, cvssOrdering);
     data.upgrades = getUpgrades(upgrade, data.vulnerabilities);
     data.pins = getUpgrades(pin, data.vulnerabilities);
     data.patches = addIssueDataToPatch(
@@ -197,11 +205,17 @@ async function generateTemplate(data: any,
       data.vulnerabilities,
     );
   }
-  const vulnMetadata = groupVulns(data.vulnerabilities);
+  const vulnMetadata = groupVulns(data.vulnerabilities, cvssOrdering);
+  const sortCols: string[] = ['metadata.severityValue', 'metadata.name'];
+  const sortType: string[] = ['desc', 'desc'];
+  if(cvssOrdering){
+    sortCols.unshift('metadata.cvssSeverityValue');
+    sortType.unshift('desc');
+  }
   const sortedVulns = orderBy(
     vulnMetadata.vulnerabilities,
-    ['metadata.severityValue', 'metadata.name'],
-    ['desc', 'desc'],
+    sortCols,
+    sortType
   );
   data.hasMetatableData = !!data.projectName || !!data.path || !!data.displayTargetFile;
   data.vulnerabilities = sortedVulns;
@@ -277,9 +291,9 @@ function mergeData(dataArray: any[]): any {
   };
 }
 
-async function processData(data: any, remediation: boolean, template: string, summary: boolean): Promise<string> {
+async function processData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string): Promise<string> {
   const mergedData = Array.isArray(data) ? mergeData(data) : data;
-  return generateTemplate(mergedData, template, remediation, summary);
+  return generateTemplate(mergedData, template, remediation, summary, cvssOrdering);
 }
 
 async function processIacData(data: any, template: string, summary: boolean): Promise<string> {
@@ -337,13 +351,13 @@ async function processCodeData(
   return generateCodeTemplate(processedData, template);
 }
 
-async function processContainerData(data: any, remediation: boolean, template: string, summary: boolean): Promise<string> {
+async function processContainerData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string): Promise<string> {
   if (!Array.isArray(data) && data.applications && Array.isArray(data.applications)) {
     const AppData = data.applications;
     delete data.applications;
     data = [data, ...AppData];
   }
-  return processData(data, remediation, template, summary);
+  return processData(data, remediation, template, summary, cvssOrdering);
 }
 
 async function readInputFromStdin(): Promise<string> {

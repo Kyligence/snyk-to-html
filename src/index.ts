@@ -28,11 +28,13 @@ program
     '-a, --actionable-remediation',
     'Display actionable remediation info if available',
   )
+  .option('-c, --cvss-ordering <assigner>', 'Sort by the specified cvss assigner')
   .parse(process.argv);
 
 let template;
 let source;
 let output;
+let cvssOrdering;
 
 if (program.template) {
   // template
@@ -73,11 +75,19 @@ if (program.debug) {
   debugModule.enable(nameSpace);
 }
 
+if (program.cvssOrdering) {
+  cvssOrdering = program.cvssOrdering;
+  if (typeof cvssOrdering === 'boolean') {
+    cvssOrdering = undefined;
+  }
+}
+
 SnykToHtml.run(
   source,
   !!program.actionableRemediation,
   template,
   !!program.summary,
+  cvssOrdering,
   onReportOutput,
 );
 
