@@ -104,7 +104,7 @@ function metadataForVuln(vuln: any, cvssOrdering: string) {
   const {cveSpaced, cveLineBreaks} = concatenateCVEs(vuln);
   const cvssSpecifiedDetails = vuln.cvssDetails.find(element => {
     return element.assigner == cvssOrdering;
-  }) ?? {severity: vuln.severity,cvssV3BaseScore: vuln.cvssScore};
+  }) ?? {severity: vuln.severity, cvssV3BaseScore: vuln.cvssScore};
 
   return {
     id: vuln.id,
