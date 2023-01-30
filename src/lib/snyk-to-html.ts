@@ -111,7 +111,7 @@ function metadataForVuln(vuln: any, cvssOrdering: string) {
     title: vuln.title,
     name: vuln.name,
     info: vuln.info || 'No information available.',
-    cvssDetails: vuln.cvssDetails,
+    cvssDetails: orderBy(vuln.cvssDetails, ['assigner'], ['asc']),
     severity: vuln.severity,
     severityValue: severityMap[vuln.severity],
     cvssSeverity: cvssSpecifiedDetails.severity,
