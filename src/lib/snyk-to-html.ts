@@ -104,7 +104,7 @@ function metadataForVuln(vuln: any, cvssOrdering: string) {
   const {cveSpaced, cveLineBreaks} = concatenateCVEs(vuln);
   const cvssSpecifiedDetails = vuln.cvssDetails.find(element => {
     return element.assigner == cvssOrdering;
-  }) ?? {severity: vuln.severity, cvssV3BaseScore: vuln.cvssScore};
+  }) ?? {severity: vuln.severity, cvssV3BaseScore: vuln.cvssScore, assigner: 'snyk'};
 
   return {
     id: vuln.id,
@@ -114,8 +114,10 @@ function metadataForVuln(vuln: any, cvssOrdering: string) {
     cvssDetails: orderBy(vuln.cvssDetails, ['assigner'], ['asc']),
     severity: vuln.severity,
     severityValue: severityMap[vuln.severity],
+    cvssAssigner: cvssSpecifiedDetails.assigner,
     cvssSeverity: cvssSpecifiedDetails.severity,
     cvssSeverityValue: severityMap[cvssSpecifiedDetails.severity],
+    cvssAssignerScore: cvssSpecifiedDetails.cvssV3BaseScore,
     description: vuln.description || 'No description available.',
     fixedIn: vuln.fixedIn,
     packageManager: vuln.packageManager,
@@ -235,6 +237,7 @@ async function generateTemplate(data: any,
   data.summary = vulnMetadata.vulnerabilitiesPathsCount + ' vulnerable dependency paths';
   data.summaryWithCVE = vulnMetadata.vulnerabilitiesPathsCount - vulnMetadata.vulnerabilitiesPathsCountWithoutCVE + ' vulnerable dependency paths';
   data.showSummaryOnly = summary;
+  data.cvssAssigner = cvssOrdering;
   if(data.paths?.length === 1){
     data.packageManager = data.paths[0].packageManager;
   }
