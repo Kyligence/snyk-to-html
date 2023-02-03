@@ -29,12 +29,14 @@ program
     'Display actionable remediation info if available',
   )
   .option('-c, --cvss-ordering <assigner>', 'Sort by the specified cvss assigner')
+  .option('-w, --whitelist <file>', 'Ignore CVEs in white list file, text file with CVEs, one CVE ID per line.')
   .parse(process.argv);
 
 let template;
 let source;
 let output;
 let cvssOrdering;
+let whitelistFile;
 
 if (program.template) {
   // template
@@ -82,12 +84,20 @@ if (program.cvssOrdering) {
   }
 }
 
+if (program.whitelist) {
+  whitelistFile = program.whitelist;
+  if (typeof whitelistFile === 'boolean') {
+    whitelistFile = undefined;
+  }
+}
+
 SnykToHtml.run(
   source,
   !!program.actionableRemediation,
   template,
   !!program.summary,
   cvssOrdering,
+  whitelistFile,
   onReportOutput,
 );
 

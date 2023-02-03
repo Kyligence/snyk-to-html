@@ -57,9 +57,10 @@ class SnykToHtml {
                     hbsTemplate: string,
                     summary: boolean,
                     cvssOrdering: string,
+                    whitelistFile: string,
                     reportCallback: (value: string) => void): void {
     SnykToHtml
-      .runAsync(dataSource, remediation, hbsTemplate, summary, cvssOrdering)
+      .runAsync(dataSource, remediation, hbsTemplate, summary, cvssOrdering, whitelistFile)
       .then(reportCallback)
       .catch(handleInvalidJson);
   }
@@ -68,7 +69,9 @@ class SnykToHtml {
                                remediation: boolean,
                                template: string,
                                summary: boolean,
-                               cvssOrdering: string): Promise<string> {
+                               cvssOrdering: string,
+                               whitelistFile: string): Promise<string> {
+    const whitelist = whitelistFile ? (await readFile(whitelistFile, 'utf8')).split('\n') : undefined;
     const promisedString = source ? readFile(source, 'utf8') : readInputFromStdin();
     return promisedString
       .then(promisedParseJSON).then((data: any) => {
@@ -90,9 +93,9 @@ class SnykToHtml {
               : template;
           return processCodeData(data, template, summary);
         } else if (data.docker) {
-          return processContainerData(data, remediation, template, summary, cvssOrdering);
+          return processContainerData(data, remediation, template, summary, cvssOrdering, whitelist);
         } else {
-          return processData(data, remediation, template, summary, cvssOrdering);
+          return processData(data, remediation, template, summary, cvssOrdering, whitelist);
         }
       });
   }
@@ -151,15 +154,26 @@ function dateFromDateTimeString(dateTimeString: string) {
   return dateTimeString.substr(0,10);
 }
 
-function groupVulns(vulns, cvssOrdering) {
+function groupVulns(vulns, cvssOrdering, whitelist) {
   const result = {};
+  let availableVulns = vulns;
   let uniqueCount = 0;
   let uniqueCountWithoutCVE = 0;
   let pathsCount = 0;
   let pathsCountWithoutCVE = 0;
 
   if (vulns && Array.isArray(vulns)) {
-    vulns.map(vuln => {
+    // filter out vulns which not in whitelist
+    if (whitelist){
+      availableVulns = vulns.filter(vuln => {
+        return !vuln.identifiers.CVE.every(cve => {
+          return whitelist.includes(cve)
+        })
+      })
+    }
+
+    // group vulns
+    availableVulns.map(vuln => {
       if (!result[vuln.id]) {
         result[vuln.id] = {list: [vuln], metadata: metadataForVuln(vuln, cvssOrdering)};
         pathsCount++;
@@ -202,7 +216,8 @@ async function generateTemplate(data: any,
                                 template: string,
                                 showRemediation: boolean,
                                 summary: boolean,
-                                cvssOrdering: string):
+                                cvssOrdering: string,
+                                whitelist: string[]):
                               Promise<string> {
   if (showRemediation && data.remediation) {
     data.showRemediations = showRemediation;
@@ -210,7 +225,7 @@ async function generateTemplate(data: any,
     data.anyRemediations = !isEmpty(upgrade) ||
     !isEmpty(patch) || !isEmpty(pin);
     data.anyUnresolved = !!unresolved?.vulnerabilities;
-    data.unresolved = groupVulns(unresolved, cvssOrdering);
+    data.unresolved = groupVulns(unresolved, cvssOrdering, whitelist);
     data.upgrades = getUpgrades(upgrade, data.vulnerabilities);
     data.pins = getUpgrades(pin, data.vulnerabilities);
     data.patches = addIssueDataToPatch(
@@ -218,7 +233,7 @@ async function generateTemplate(data: any,
       data.vulnerabilities,
     );
   }
-  const vulnMetadata = groupVulns(data.vulnerabilities, cvssOrdering);
+  const vulnMetadata = groupVulns(data.vulnerabilities, cvssOrdering, whitelist);
   const sortCols: string[] = ['metadata.severityValue', 'metadata.name'];
   const sortType: string[] = ['desc', 'desc'];
   if(cvssOrdering){
@@ -307,9 +322,9 @@ function mergeData(dataArray: any[]): any {
   };
 }
 
-async function processData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string): Promise<string> {
+async function processData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string, whitelist: any): Promise<string> {
   const mergedData = Array.isArray(data) ? mergeData(data) : data;
-  return generateTemplate(mergedData, template, remediation, summary, cvssOrdering);
+  return generateTemplate(mergedData, template, remediation, summary, cvssOrdering, whitelist);
 }
 
 async function processIacData(data: any, template: string, summary: boolean): Promise<string> {
@@ -367,13 +382,13 @@ async function processCodeData(
   return generateCodeTemplate(processedData, template);
 }
 
-async function processContainerData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string): Promise<string> {
+async function processContainerData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string, whitelist: any): Promise<string> {
   if (!Array.isArray(data) && data.applications && Array.isArray(data.applications)) {
     const AppData = data.applications;
     delete data.applications;
     data = [data, ...AppData];
   }
-  return processData(data, remediation, template, summary, cvssOrdering);
+  return processData(data, remediation, template, summary, cvssOrdering, whitelist);
 }
 
 async function readInputFromStdin(): Promise<string> {
