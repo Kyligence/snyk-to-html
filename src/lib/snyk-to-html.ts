@@ -58,9 +58,10 @@ class SnykToHtml {
                     summary: boolean,
                     cvssOrdering: string,
                     whitelistFile: string,
+                    knownlistFile: string,
                     reportCallback: (value: string) => void): void {
     SnykToHtml
-      .runAsync(dataSource, remediation, hbsTemplate, summary, cvssOrdering, whitelistFile)
+      .runAsync(dataSource, remediation, hbsTemplate, summary, cvssOrdering, whitelistFile, knownlistFile)
       .then(reportCallback)
       .catch(handleInvalidJson);
   }
@@ -70,8 +71,10 @@ class SnykToHtml {
                                template: string,
                                summary: boolean,
                                cvssOrdering: string,
-                               whitelistFile: string): Promise<string> {
+                               whitelistFile: string,
+                               knownlistFile: string): Promise<string> {
     const whitelist = whitelistFile ? (await readFile(whitelistFile, 'utf8')).split('\n') : undefined;
+    const knownlist = knownlistFile ? (await readFile(knownlistFile, 'utf8')).split('\n') : undefined;
     const promisedString = source ? readFile(source, 'utf8') : readInputFromStdin();
     return promisedString
       .then(promisedParseJSON).then((data: any) => {
@@ -93,9 +96,9 @@ class SnykToHtml {
               : template;
           return processCodeData(data, template, summary);
         } else if (data.docker) {
-          return processContainerData(data, remediation, template, summary, cvssOrdering, whitelist);
+          return processContainerData(data, remediation, template, summary, cvssOrdering, whitelist, knownlist);
         } else {
-          return processData(data, remediation, template, summary, cvssOrdering, whitelist);
+          return processData(data, remediation, template, summary, cvssOrdering, whitelist, knownlist);
         }
       });
   }
@@ -103,8 +106,8 @@ class SnykToHtml {
 
 export { SnykToHtml };
 
-function metadataForVuln(vuln: any, cvssOrdering: string) {
-  const {cveSpaced, cveLineBreaks} = concatenateCVEs(vuln);
+function metadataForVuln(vuln: any, cvssOrdering: string, knownlist: any) {
+  const {cveSpaced, cveLineBreaks} = concatenateCVEs(vuln, knownlist);
   const cvssSpecifiedDetails = vuln.cvssDetails.find(element => {
     return element.assigner == cvssOrdering;
   }) ?? {severity: vuln.severity, cvssV3BaseScore: vuln.cvssScore, assigner: 'snyk'};
@@ -135,13 +138,18 @@ function metadataForVuln(vuln: any, cvssOrdering: string) {
   };
 }
 
-function concatenateCVEs(vuln: any) {
+function concatenateCVEs(vuln: any, knownlist: any) {
   let cveSpaced = ''
   let cveLineBreaks = ''
 
   if (vuln.identifiers) {
     vuln.identifiers.CVE.forEach(function(c) {
       let cveLink = `<a href="https://cve.mitre.org/cgi-bin/cvename.cgi?name=${c}">${c}</a>`
+      if (knownlist){
+        if (!knownlist.includes(c)){
+          cveLink += ` <b style="color:red">(new)</b>`
+        }
+      }
       cveSpaced += `${cveLink}&nbsp;`
       cveLineBreaks += `${cveLink}</br>`
     })
@@ -154,13 +162,14 @@ function dateFromDateTimeString(dateTimeString: string) {
   return dateTimeString.substr(0,10);
 }
 
-function groupVulns(vulns, cvssOrdering, whitelist) {
+function groupVulns(vulns, cvssOrdering, whitelist, knownlist) {
   const result = {};
   let availableVulns = vulns;
   let uniqueCount = 0;
   let uniqueCountWithoutCVE = 0;
   let pathsCount = 0;
   let pathsCountWithoutCVE = 0;
+  let newVulnCount = 0;
 
   if (vulns && Array.isArray(vulns)) {
     // filter out vulns which not in whitelist
@@ -175,12 +184,20 @@ function groupVulns(vulns, cvssOrdering, whitelist) {
     // group vulns
     availableVulns.map(vuln => {
       if (!result[vuln.id]) {
-        result[vuln.id] = {list: [vuln], metadata: metadataForVuln(vuln, cvssOrdering)};
+        result[vuln.id] = {list: [vuln], metadata: metadataForVuln(vuln, cvssOrdering, knownlist)};
         pathsCount++;
         uniqueCount++;
         if (!vuln.identifiers.CVE.length) {
           uniqueCountWithoutCVE++;
           pathsCountWithoutCVE++;
+        } else {
+          // if vuln has CVEs
+          // count new vuln
+          if (knownlist && vuln.identifiers.CVE.find(cve => {
+            return !knownlist.includes(cve);
+          })){
+            newVulnCount++;
+          }
         }
       } else {
         result[vuln.id].list.push(vuln);
@@ -192,12 +209,16 @@ function groupVulns(vulns, cvssOrdering, whitelist) {
     });
   }
 
+  if (knownlist) {
+    console.log(`There are ${newVulnCount} new vulnerabilities.`)
+  }
   return {
     vulnerabilities: result,
     vulnerabilitiesUniqueCount: uniqueCount,
     vulnerabilitiesUniqueCountWithoutCVE: uniqueCountWithoutCVE,
     vulnerabilitiesPathsCount: pathsCount,
-    vulnerabilitiesPathsCountWithoutCVE: pathsCountWithoutCVE
+    vulnerabilitiesPathsCountWithoutCVE: pathsCountWithoutCVE,
+    vulnerabilitiesNewCount: newVulnCount
   };
 }
 
@@ -217,7 +238,8 @@ async function generateTemplate(data: any,
                                 showRemediation: boolean,
                                 summary: boolean,
                                 cvssOrdering: string,
-                                whitelist: string[]):
+                                whitelist: string[],
+                                knownlist: string[]):
                               Promise<string> {
   if (showRemediation && data.remediation) {
     data.showRemediations = showRemediation;
@@ -225,7 +247,7 @@ async function generateTemplate(data: any,
     data.anyRemediations = !isEmpty(upgrade) ||
     !isEmpty(patch) || !isEmpty(pin);
     data.anyUnresolved = !!unresolved?.vulnerabilities;
-    data.unresolved = groupVulns(unresolved, cvssOrdering, whitelist);
+    data.unresolved = groupVulns(unresolved, cvssOrdering, whitelist, knownlist);
     data.upgrades = getUpgrades(upgrade, data.vulnerabilities);
     data.pins = getUpgrades(pin, data.vulnerabilities);
     data.patches = addIssueDataToPatch(
@@ -233,7 +255,7 @@ async function generateTemplate(data: any,
       data.vulnerabilities,
     );
   }
-  const vulnMetadata = groupVulns(data.vulnerabilities, cvssOrdering, whitelist);
+  const vulnMetadata = groupVulns(data.vulnerabilities, cvssOrdering, whitelist, knownlist);
   const sortCols: string[] = ['metadata.severityValue', 'metadata.name'];
   const sortType: string[] = ['desc', 'desc'];
   if(cvssOrdering){
@@ -249,6 +271,7 @@ async function generateTemplate(data: any,
   data.vulnerabilities = sortedVulns;
   data.uniqueCount = vulnMetadata.vulnerabilitiesUniqueCount;
   data.uniqueCountWithCVE = vulnMetadata.vulnerabilitiesUniqueCount - vulnMetadata.vulnerabilitiesUniqueCountWithoutCVE;
+  data.newVulnCount = vulnMetadata.vulnerabilitiesNewCount
   data.summary = vulnMetadata.vulnerabilitiesPathsCount + ' vulnerable dependency paths';
   data.summaryWithCVE = vulnMetadata.vulnerabilitiesPathsCount - vulnMetadata.vulnerabilitiesPathsCountWithoutCVE + ' vulnerable dependency paths';
   data.showSummaryOnly = summary;
@@ -322,9 +345,9 @@ function mergeData(dataArray: any[]): any {
   };
 }
 
-async function processData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string, whitelist: any): Promise<string> {
+async function processData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string, whitelist: any, knownlist: any): Promise<string> {
   const mergedData = Array.isArray(data) ? mergeData(data) : data;
-  return generateTemplate(mergedData, template, remediation, summary, cvssOrdering, whitelist);
+  return generateTemplate(mergedData, template, remediation, summary, cvssOrdering, whitelist, knownlist);
 }
 
 async function processIacData(data: any, template: string, summary: boolean): Promise<string> {
@@ -382,13 +405,13 @@ async function processCodeData(
   return generateCodeTemplate(processedData, template);
 }
 
-async function processContainerData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string, whitelist: any): Promise<string> {
+async function processContainerData(data: any, remediation: boolean, template: string, summary: boolean, cvssOrdering: string, whitelist: any, knownlist: any): Promise<string> {
   if (!Array.isArray(data) && data.applications && Array.isArray(data.applications)) {
     const AppData = data.applications;
     delete data.applications;
     data = [data, ...AppData];
   }
-  return processData(data, remediation, template, summary, cvssOrdering, whitelist);
+  return processData(data, remediation, template, summary, cvssOrdering, whitelist, knownlist);
 }
 
 async function readInputFromStdin(): Promise<string> {

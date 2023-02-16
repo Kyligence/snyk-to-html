@@ -29,7 +29,10 @@ program
     'Display actionable remediation info if available',
   )
   .option('-c, --cvss-ordering <assigner>', 'Sort by the specified cvss assigner')
-  .option('-w, --whitelist <file>', 'Ignore CVEs in white list file, text file with CVEs, one CVE ID per line.')
+  .option('-w, --whitelist <file>',
+    'Ignore CVEs in white list file, text file with CVEs, one CVE ID per line.')
+  .option('-k, --knownlist <file>',
+    'Mark CVEs as new vulnerablies that are NOT in the known list file, text file with CVEs, one CVE ID per line.')
   .parse(process.argv);
 
 let template;
@@ -37,6 +40,7 @@ let source;
 let output;
 let cvssOrdering;
 let whitelistFile;
+let knownlistFile;
 
 if (program.template) {
   // template
@@ -91,6 +95,13 @@ if (program.whitelist) {
   }
 }
 
+if (program.knownlist) {
+  knownlistFile = program.knownlist;
+  if (typeof knownlistFile === 'boolean') {
+    knownlistFile = undefined;
+  }
+}
+
 SnykToHtml.run(
   source,
   !!program.actionableRemediation,
@@ -98,6 +109,7 @@ SnykToHtml.run(
   !!program.summary,
   cvssOrdering,
   whitelistFile,
+  knownlistFile,
   onReportOutput,
 );
 
